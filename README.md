@@ -1857,6 +1857,228 @@ $$
 
 
 
+##### 四、论文5
+
+论文：The Devil is in the Details: Delving into Unbiased Data Processing for Human Pose Estimation  
+
+repo：https://github.com/HuangJunJie2017/UDP-Pose
+
+数据集：MSCOCO2017
+
+这篇文章的方法是model-agnostic approach(即与模型无关的方法)，改进的是数据预处理时的方法。现阶段的预处理方法主要有以下三个方面：
+
+（1）Data Transformation
+
+Simple Baseline和HRNet在inference时，使用像素来衡量图像的尺寸，并使用flipping的策略，代码如下：
+
+```python
+if config.TEST.FLIP_TEST:
+                # this part is ugly, because pytorch has not supported negative index
+                # input_flipped = model(input[:, :, :, ::-1])
+                input_flipped = np.flip(input.cpu().numpy(), 3).copy() # 第三维翻转，相当于对原图做水平翻转
+                input_flipped = torch.from_numpy(input_flipped).cuda()
+                # print(input_flipped.size()) # torch.size([size, 3, 256, 192])
+                output_flipped = model(input_flipped)
+                output_flipped = flip_back(output_flipped.cpu().numpy(),
+                                           val_dataset.flip_pairs)
+                output_flipped = torch.from_numpy(output_flipped.copy()).cuda()
+                # print(output_flipped.size()) # torch.size([size, 17, 64, 48])
+                
+                # feature is not aligned, shift flipped heatmap for higher accuracy
+                if config.TEST.SHIFT_HEATMAP:
+                    output_flipped[:, :, :, 1:] = \
+                        output_flipped.clone()[:, :, :, 0:-1]
+                    # output_flipped[:, :, :, 0] = 0
+                    # print(output_flipped.size())
+
+                output = (output + output_flipped) * 0.5
+                #print(output.size()) # torch.size([size, 17, 64, 48])
+                # 首先测试了原图a得到结果b，然后测试了翻转的原图a_，再把翻转的原图测试结果b_又翻转了回来得到b'，最后取了原图结果b和翻转结果b'的均值
+```
+
+```python
+def flip_back(output_flipped, matched_parts):
+    '''
+    ouput_flipped: numpy.ndarray(batch_size, num_joints, height, width)
+    '''
+    assert output_flipped.ndim == 4,\
+        'output_flipped should be [batch_size, num_joints, height, width]'
+
+    output_flipped = output_flipped[:, :, :, ::-1] # 通道内进行水平翻转
+    # 通道间根据matched_parts进行翻转
+    for pair in matched_parts:
+        tmp = output_flipped[:, pair[0], :, :].copy()
+        output_flipped[:, pair[0], :, :] = output_flipped[:, pair[1], :, :]
+        output_flipped[:, pair[1], :, :] = tmp
+    return output_flipped
+```
+
+首先测试原图$a$的结果$b$，然后测试了翻转的原图$a\_$，再测试翻转的原图$a\_$得到测试结果$b\_$，再对$b\_$使用flip_back函数得到$b'$，最后对原图测试结果$b$以及翻转结果$b'$取均值得到inference的最终结果。值得注意的是flip_back函数，在flip_back函数中，不仅仅在17个关键点通道内进行水平翻转，还要对通道间的matched_parts进行对应的配对调换，比如右眼对应的通道和左眼对应的通道进行调换。
+
+在水平翻转之后，Simple Baseline和HRNet还有个水平位移一个像素的操作，代码如下：
+
+```python
+# feature is not aligned, shift flipped heatmap for higher accuracy
+if config.TEST.SHIFT_HEATMAP:
+    output_flipped[:, :, :, 1:] = output_flipped.clone()[:, :, :, 0:-1]
+```
+
+（原因未知：TODO）
+
+
+
+（2）Data Augmentation
+
+数据增强操作，如旋转，翻转，规定尺寸等。
+
+
+
+（3）Encoding-Decoding
+
+Encoding-Decoding指的是关键点的坐标和heatmaps之间的转换。训练阶段，使用高斯分布将ground truth编码为heatmap；预测阶段将预测的hetamap结果解码为关键点坐标。这种编码解码方法比直接回归坐标效果要好，但是引入了系统误差。将回归和分类的编解码方式结合起来比单纯的分类要好（论文4）。
+
+这篇文章从角度（1）（3）进行改进，提出无偏数据处理策略来提高姿态估计器的性能。
+
+先分析SimpleBaseline和HRNet中的Data Augmentation：
+
+（1）理论（见图Data_Augmentation，文章UDP的附录部分）
+
+关键点检测的top-down方法的数据增强部分，会将目标的box旋转变换到网络的输入尺寸，如$^pw_i*^ph_i$。这一过程可以划分为几个步骤：
+
+1）将原图的左上角坐标原点移到box的中心，即box中心作为原图新的坐标中心，坐标变换如下：
+$$
+\left[\begin{matrix}
+   x_1\\
+   y_1\\
+   1
+\end{matrix}\right]=
+\left[\begin{matrix}
+   1 & 0 & -^sx_b \\
+   0 & -1 & ^sy_b \\
+   0 & 0 & 1
+\end{matrix}\right]*
+\left[\begin{matrix}
+   x\\
+   y\\
+   1
+\end{matrix}\right]
+$$
+2）在box为坐标原点的坐标系下，将原图旋转$\theta$角度，坐标变换如下：
+$$
+\left[\begin{matrix}
+   x_2\\
+   y_2\\
+   1
+\end{matrix}\right]=
+\left[\begin{matrix}
+   cos\theta & sin\theta & 0 \\
+   -sin\theta & cos\theta & 0 \\
+   0 & 0 & 1
+\end{matrix}\right]*
+\left[\begin{matrix}
+   x_1\\
+   y_1\\
+   1
+\end{matrix}\right]
+$$
+3）将box中心的坐标原点移到box的左上角，坐标变换如下：
+$$
+\left[\begin{matrix}
+   x_3\\
+   y_3\\
+   1
+\end{matrix}\right]=
+\left[\begin{matrix}
+   1 & 0 & 0.5^sw_b \\
+   0 & -1 & 0.5^sh_b \\
+   0 & 0 & 1
+\end{matrix}\right]*
+\left[\begin{matrix}
+   x_2\\
+   y_3\\
+   1
+\end{matrix}\right]
+$$
+4）将box缩放到网络的输入尺寸大小，如$^pw_i*^ph_i$，坐标变换如下：
+$$
+\left[\begin{matrix}
+   x_4\\
+   y_4\\
+   1
+\end{matrix}\right]=
+\left[\begin{matrix}
+   \frac{^pw_i}{^sw_b} & 0 & 0 \\
+   0 & \frac{^ph_i}{^sh_b} & 0 \\
+   0 & 0 & 1
+\end{matrix}\right]*
+\left[\begin{matrix}
+   x_3\\
+   y_3\\
+   1
+\end{matrix}\right]
+$$
+综合以上4个步骤，得到UDP的附录部分的公式，即：
+
+![Data_Augmentation](G:\Documents\sunzheng\Learning_SimpleBaseline_and_LightweightBaseling_for_Human_Pose_Estimation\code\Data_Augmentation.png)
+
+
+
+（2）代码（/lib/utils/transform.py）
+
+```python
+def get_affine_transform(center,
+                         scale,
+                         rot,
+                         output_size,
+                         shift=np.array([0, 0], dtype=np.float32),
+                         inv=0):
+    if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
+        print(scale)
+        scale = np.array([scale, scale])
+    
+    scale_tmp = scale * 200.0
+    # print('scale_tmp:',scale_tmp)
+    src_w = scale_tmp[0]
+    dst_w = output_size[0]
+    dst_h = output_size[1]
+
+    rot_rad = np.pi * rot / 180 # 角度转弧度
+    src_dir = get_dir([0, src_w * -0.5], rot_rad)
+    dst_dir = np.array([0, dst_w * -0.5], np.float32)
+
+    src = np.zeros((3, 2), dtype=np.float32)
+    dst = np.zeros((3, 2), dtype=np.float32)
+    src[0, :] = center + scale_tmp * shift # 原图像第一个点选取的是box的中心
+    src[1, :] = center + src_dir + scale_tmp * shift
+    dst[0, :] = [dst_w * 0.5, dst_h * 0.5] # 目标图像第一个点选取的是输出256,192的中心
+    dst[1, :] = np.array([dst_w * 0.5, dst_h * 0.5]) + dst_dir
+    # 原图像和目标图像的第二个点个人认为是随便选取的
+    # 原图像选取[0, src_w * -0.5]之后，逆时针旋转rot_rad，再加上中心坐标center
+    # 目标图像直接选取[0, dst_w * -0.5]，再加上中心坐标[dst_w * 0.5, dst_h * 0.5]
+    # 将这两个点作为原图像和目标图像对应的第二个点
+    # 然后利用这两个点去计算第三个组成直角三角形的点
+    src[2:, :] = get_3rd_point(src[0, :], src[1, :])
+    dst[2:, :] = get_3rd_point(dst[0, :], dst[1, :])
+    
+    # 利用原图像和目标图像中的两个直角三角形来计算放射变换矩阵trans，2*3
+    if inv:
+        trans = cv2.getAffineTransform(np.float32(dst), np.float32(src))
+    else:
+        trans = cv2.getAffineTransform(np.float32(src), np.float32(dst))
+
+    return trans
+```
+
+在原图坐标下以box为中心取了三个点，再在网络输入尺寸图的坐标下，以网络输入尺寸图为中心取了三个点，来计算放射变换矩阵，实际上就是上图中矩阵，只不过方式不一样。（待考证，需要查看cv2.getAffineTransform源码）
+
+
+
+
+
+
+
+
+
 
 
 #### 附录一、MSCOCO数据集介绍
@@ -2291,9 +2513,9 @@ OKS矩阵：
 
 #### 附录三、框架代码解读
 
-由于上述三篇论文都是使用同一套论文框架，所以有必要对框架代码进行学习。
+由于上述前三篇论文都是使用同一套论文框架，所以有必要对框架代码进行学习；并且lpn在前两篇文章基础上进行了改进，需要读懂改进的代码。
 
-1./pose_estimation/train.py
+1.Simple Baseline框架代码
 
 （1）parser.parse_known_args()函数
 
@@ -2378,7 +2600,7 @@ print(s[1]) # Alice
 
 （5）损失函数的计算
 
-损失函数有三个参数，output(当前样本的模型输出)，target(当前样本的标签)，target_weight(当前样本的标签权重)；通过print中间变量的信息，模型输出output和标签target都是规模为$batch\_size*17*64*48$的tensor，target_weight是$batch\_size*17*1$，给17个通道分别赋权值0，1，权值0表示该关键点没有进行标注或者该关键点经过坐标映射，$256*192$的原图关键点坐标映射到$64*48$的target关键点坐标之后，该关键点对应的高斯半径脱离了heatmap的范围（个人觉得不会出现这种情况），1表示关键点仍然存在（数据加载部分生成target_weight）。
+损失函数有三个参数，output(当前样本的模型输出)，target(当前样本的标签)，target_weight(当前样本的标签权重)；通过print中间变量的信息，模型输出output和标签target都是规模为$batch\_size*17*64*48$的tensor，target_weight是$batch\_size*17*1$，给17个通道分别赋权值0，1，权值0表示该关键点没有进行标注或者该关键点经过坐标映射，$256*192$的原图关键点坐标映射到$64*48$的target关键点坐标之后，该关键点对应的高斯半径脱离了heatmap的范围（实际上就是该关键点经过变换脱离了heatmap的范围，并且该点对应的高斯圆也脱离了heatmap的范围），1表示关键点仍然存在（数据加载部分生成target_weight）。
 
 损失函数loss.py：
 
@@ -2710,7 +2932,7 @@ PCK^p_\sigma(d_0)=\frac{1}{T}\sum_{t\in A}\delta(||x_p^f-y_p^f||<\sigma)
 $$
 $T$表示测试集合中样本的个数，$\sigma$表示欧式距离的阈值，$A$表示测试集合，$x_p^f$表示检测器的预测位置，$y_p^f$表示真实位置。可以通过卡不同的阈值来计算AP。
 
-对于$OKS$和$PCK$指标，区别实际上很明显，一个是以人为单位，计算每个人的$OKS$（每个人的$OKS$又和这个人的所有关键点有关），再对$OKS$设置阈值，来计算当前batch_size所有人中大于给定阈值的比例（一个阈值对应一个比例，可以算AP）；一个以关键点为单位，计算每个关键点归一化之后的预测坐标和真实坐标之间的欧式距离，再对距离设置阈值，计算当前关键点在batch_size中小于给定阈值的比例，再求该阈值下所有关键点（比如17个）的平均值比例（即为$PCK$，一个阈值对应一个平均比例，可以算AP）。
+对于$OKS$和$PCK$指标，区别实际上很明显，一个是以人为单位，计算每个人的$OKS$（每个人的$OKS$又和这个人的所有关键点有关），再对$OKS$设置阈值，来计算当前batch_size所有人中大于给定阈值的比例；一个以关键点为单位，计算每个关键点归一化之后的预测坐标和真实坐标之间的欧式距离，再对距离设置阈值，计算当前关键点在batch_size中小于给定阈值的比例，再求该阈值下所有关键点（比如17个）的平均值比例。
 
 
 
@@ -2746,6 +2968,12 @@ def _do_python_keypoint_eval(self, res_file, res_folder):
 
         return info_str
 ```
+
+
+
+2.lpn改进代码
+
+
 
 
 
