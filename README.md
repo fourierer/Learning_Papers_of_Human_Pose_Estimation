@@ -1807,7 +1807,7 @@ DONE (t=0.31s).
 
 
 
-##### 三、论文4
+##### 四、论文4
 
 论文：Towards Accurate Multi-person Pose Estimation in the Wild
 
@@ -1858,7 +1858,76 @@ $$
 
 
 
-##### 四、论文5
+##### 五、论文5
+
+论文：Distribution-Aware Coordinate Representation for Human Pose Estimation  
+
+repo：https://github.com/ilovepose/DarkPose
+
+数据集：MSCOCO2017
+
+这篇文章从关键点检测的编码和解码方法出发，提出DARK方法，有两个关键点：（1）基于泰勒展开的坐标解码；（2）无偏亚像素级别的坐标编码。
+
+
+
+1.解码过程的改进
+
+（1）标准的坐标解码方法（即HRNet或SimpleBaseline中的编码方法）
+
+假设heatmap中最大值对应的坐标为$m$，次大值对应的坐标为$s$，则最终预测的结果为：
+$$
+p = m+0.25\frac{s-m}{||s-m||_2}\tag{1}
+$$
+意味着最终的预测结果是最大值的坐标向第二大值的坐标方向偏移0.25个像素（即亚像素级别）。但实际上代码只是取了相邻的四个像素来计算偏移方向，x方向上左边的像素值大于右边的像素值，则向左边偏移0.25个像素；y方向上面的像素值大于下面的像素值，则向上偏移0.25个像素。代码如下：
+
+```python
+def get_final_preds(config, batch_heatmaps, center, scale):
+    coords, maxvals = get_max_preds(batch_heatmaps)
+
+    heatmap_height = batch_heatmaps.shape[2]
+    heatmap_width = batch_heatmaps.shape[3]
+
+    # post-processing
+    if config.TEST.POST_PROCESS:
+        for n in range(coords.shape[0]):
+            for p in range(coords.shape[1]):
+                hm = batch_heatmaps[n][p]
+                px = int(math.floor(coords[n][p][0] + 0.5))
+                py = int(math.floor(coords[n][p][1] + 0.5))
+                if 1 < px < heatmap_width-1 and 1 < py < heatmap_height-1:
+                    diff = np.array(
+                        [
+                            hm[py][px+1] - hm[py][px-1],
+                            hm[py+1][px] - hm[py-1][px]
+                        ]
+                    )
+                    coords[n][p] += np.sign(diff) * .25
+
+    preds = coords.copy()
+
+    # Transform back
+    for i in range(coords.shape[0]):
+        preds[i] = transform_preds(
+            coords[i], center[i], scale[i], [heatmap_width, heatmap_height])
+
+    return preds, maxvals
+```
+
+然后再转换回原始图像空间。
+
+公式（1）是为了补偿图像分辨率下采样造成的定量损失。也就是说，预测的heatmap中预测的最大值只是一个粗糙的位置，并不是关键点真正的坐标位置。这一标准方法在设计中缺乏直觉和解释，还没有专门的研究进行改进。这篇文章围绕这一点提出了一种偏移估计的理论方法，最终得到更精确的人体姿态估计。
+
+
+
+（2）改进的解码方法
+
+提出的解码方法通过探索预测的heatmap的**分布**来寻找潜在的最大值，这与上面依赖手工设计的偏移量预测的标准方法有很大的不同，后者几乎没有设计理由和基本原理。
+
+
+
+
+
+##### 六、论文6
 
 论文：The Devil is in the Details: Delving into Unbiased Data Processing for Human Pose Estimation  
 
@@ -2815,9 +2884,9 @@ OKS矩阵：
 
 #### 附录三、框架代码解读
 
-由于上述前三篇论文都是使用同一套论文框架，所以有必要对框架代码进行学习；并且lpn在前两篇文章基础上进行了改进，需要读懂改进的代码。
+由于上述几篇论文都是使用同一套论文框架，所以有必要对框架代码进行学习，这里记录SimpleBaseline和HRNet+UDP的代码。
 
-1.Simple Baseline框架代码
+##### 1.Simple Baseline框架代码
 
 （1）parser.parse_known_args()函数
 
@@ -3273,7 +3342,26 @@ def _do_python_keypoint_eval(self, res_file, res_folder):
 
 
 
-2.lpn改进代码
+##### 2.HRNet+UDP
+
+1.损失函数
+
+在训练代码的主函数中，有两种损失函数类型可以选择，代码如下：
+
+```python
+# define loss function (criterion) and optimizer
+    if cfg.MODEL.TARGET_TYPE == 'gaussian':
+        criterion = JointsMSELoss(
+            use_target_weight=cfg.LOSS.USE_TARGET_WEIGHT
+        ).cuda()
+    elif cfg.MODEL.TARGET_TYPE == 'offset':
+        criterion = JointsMSELoss_offset(use_target_weight=cfg.LOSS.USE_TARGET_WEIGHT).cuda()
+        # criterion = JointsL1Loss_offset(use_target_weight=cfg.LOSS.USE_TARGET_WEIGHT,reduction=cfg.LOSS.REDUCTION).cuda()
+```
+
+由于损失函数设计涉及到target heatmap如何生成，所以需要先读懂Dataset类。
+
+
 
 
 
