@@ -1923,6 +1923,165 @@ def get_final_preds(config, batch_heatmaps, center, scale):
 
 提出的解码方法通过探索预测的heatmap的**分布**来寻找潜在的最大值，这与上面依赖手工设计的偏移量预测的标准方法有很大的不同，后者几乎没有设计理由和基本原理。
 
+假设离散的heatmap服从二维高斯分布：
+$$
+G(x,\mu,\Sigma)=\frac{1}{2\pi|\Sigma|^\frac{1}{2}}exp(-\frac{1}{2}(x-\mu)^T\Sigma^{-1}(x-\mu))
+$$
+同时协方差矩阵如下：
+$$
+\Sigma=
+\left[\begin{matrix}
+\sigma^2 & 0 \\
+0 & \sigma^2
+\end{matrix}\right]
+$$
+对高斯分布取极大似然函数：
+$$
+f(x;\mu,\Sigma)=ln(G)=-ln(2\pi)-\frac{1}{2}ln(|\Sigma|)-\frac{1}{2}(x-\mu)^T\Sigma^{-1}(x-\mu)
+$$
+对$f$求一阶导：
+$$
+f'(x)|_{x=\mu}=-\Sigma^{-1}(x-\mu)=0
+$$
+假设预测的heatmap上最大值的位置为$m$（$f'(m)=-\Sigma^{-1}(m-\mu)$），将$f$在$m$处多元泰勒展开，并代入真实中心$\mu$，得到：
+$$
+f(\mu)=f(m)+f'(m)^T(\mu-m)+\frac{1}{2}(\mu-m)^Tf''(m)(\mu-m)
+$$
+这里$f''(m)$是二维高斯分布的hessian阵，易求$f''(m)=-\Sigma^{-1}$，则可以推导出真实值$\mu$与预测heatmap的最大值$m$之间的偏移：
+$$
+\begin{align*}
+\mu&=m-(m-\mu)\\
+&=m-[-\Sigma f'(m)]\\
+&=m-[f''(m)]^{-1}f'(m)
+\end{align*}
+$$
+这里将$f$在$m$处进行多元泰勒展开得到$m$和$\mu$之间的关系，误差取决于$m$和$\mu$有多接近，并展开到进行几阶导。
+
+**误差分析：二维高斯分布取对数后是一个二元二次函数，是一个凸函数，在使用牛顿法迭代求解极值时具有二次终止性质，即可以一步迭代到极值处。并且二元二次函数在最大值点$m$处做泰勒展开，只展开到第二项时是没有误差的（因为三阶导，即第三项为0）。整个过程的误差出现在利用像素离散值计算梯度和hessian的过程中。假设预测的heatmap都是非常准确的，那么在一个二元二次函数的某个方向上，利用左右同间距的像素点去计算中间一点的梯度，也是没有误差的（因为二次函数求导之后是线性的）。但当预测的值并不是完全准确的，则计算梯度会有误差，进而导致二阶导hessian矩阵也存在误差。这一步可能是后续改进的点。**
+
+
+
+
+
+所以该解码方法分三步进行：
+
+（1）预测的heatmap在最大值附近有很多“峰”，所以先使用一个高斯核进行平滑，再进行归一化得到处理后的预测heatmap；
+
+（2）使用推导的偏移公式计算真正的高斯中心；
+
+（3）将计算的高斯中心再返回到原始图像中；
+
+
+
+2.编码过程的改进
+
+（略）
+
+
+
+测试指令（官方模型）：
+
+```
+python tools/test.py \
+    --cfg experiments/coco/hrnet/w32_256x192_adam_lr1e-3.yaml \
+    TEST.MODEL_FILE models/pytorch/pose_coco/w32_256×192.pth \
+    TEST.USE_GT_BBOX False
+```
+
+官方模型测试结果：
+
+```python
+DONE (t=0.27s).
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets= 20 ] = 0.756
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets= 20 ] = 0.905
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets= 20 ] = 0.821
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets= 20 ] = 0.718
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.828
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 20 ] = 0.808
+ Average Recall     (AR) @[ IoU=0.50      | area=   all | maxDets= 20 ] = 0.944
+ Average Recall     (AR) @[ IoU=0.75      | area=   all | maxDets= 20 ] = 0.866
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets= 20 ] = 0.764
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.871
+| Arch | AP | Ap .5 | AP .75 | AP (M) | AP (L) | AR | AR .5 | AR .75 | AR (M) | AR (L) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| pose_hrnet | 0.756 | 0.905 | 0.821 | 0.718 | 0.828 | 0.808 | 0.944 | 0.866 | 0.764 | 0.871 |
+```
+
+
+
+测试指令（官方模型）：
+
+```
+python tools/test.py \
+    --cfg experiments/coco/hrnet/w32_384x288_adam_lr1e-3.yaml \
+    TEST.MODEL_FILE models/pytorch/pose_coco/w32_384×288.pth \
+    TEST.USE_GT_BBOX False
+```
+
+官方模型测试结果：
+
+```python
+DONE (t=0.35s).
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets= 20 ] = 0.766
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets= 20 ] = 0.907
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets= 20 ] = 0.828
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets= 20 ] = 0.727
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.839
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 20 ] = 0.815
+ Average Recall     (AR) @[ IoU=0.50      | area=   all | maxDets= 20 ] = 0.942
+ Average Recall     (AR) @[ IoU=0.75      | area=   all | maxDets= 20 ] = 0.870
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets= 20 ] = 0.771
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.880
+| Arch | AP | Ap .5 | AP .75 | AP (M) | AP (L) | AR | AR .5 | AR .75 | AR (M) | AR (L) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| pose_hrnet | 0.766 | 0.907 | 0.828 | 0.727 | 0.839 | 0.815 | 0.942 | 0.870 | 0.771 | 0.880 |
+```
+
+
+
+
+
+训练：
+
+```
+python tools/train.py \
+    --cfg experiments/coco/hrnet/w32_256x192_adam_lr1e-3.yaml
+```
+
+
+
+测试指令：
+
+```
+python tools/test.py \
+    --cfg experiments/coco/hrnet/w32_256x192_adam_lr1e-3.yaml \
+    TEST.MODEL_FILE output/coco/pose_hrnet/w32_256x192_adam_lr1e-3/model_best.pth \
+    TEST.USE_GT_BBOX False
+```
+
+测试结果：
+
+```python
+DONE (t=0.32s).
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets= 20 ] = 0.755
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets= 20 ] = 0.903
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets= 20 ] = 0.822
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets= 20 ] = 0.717
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.827
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 20 ] = 0.807
+ Average Recall     (AR) @[ IoU=0.50      | area=   all | maxDets= 20 ] = 0.942
+ Average Recall     (AR) @[ IoU=0.75      | area=   all | maxDets= 20 ] = 0.867
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets= 20 ] = 0.763
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.871
+| Arch | AP | Ap .5 | AP .75 | AP (M) | AP (L) | AR | AR .5 | AR .75 | AR (M) | AR (L) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| pose_hrnet | 0.755 | 0.903 | 0.822 | 0.717 | 0.827 | 0.807 | 0.942 | 0.867 | 0.763 | 0.871 |
+```
+
+和官方给出的模型效果基本一致。
+
+
+
 
 
 
@@ -2447,6 +2606,106 @@ $$
 由于数据增强都会使用水平翻转，所以还是需要使用位移操作或者DT，但这两种方法表现基本一致，所以改进应当从ED部分来进行。
 
 这里再对位移操作和DT做个简单的对比来表现二者表现基本一致。由于翻转导致的误差由文章中的证明方法，当$s=\frac{256}{64}$时，误差为0.75，**再加上**坐标四舍五入操作，误差刚好为1个像素，所以SimpleBaseline和HRNet中的位移一个像素的操作效果好，相当于没有误差；在DT中，改变映射的因子$t=\frac{256-1}{64-1}$，使得翻转之后没有误差，两个结果同时再取四舍五入相当于两个结果之间还是没有误差，所以位移操作和DT的结果表现基本一致。
+
+
+
+##### 七、论文7
+
+论文：Cross-Domain Adaptation for Animal Pose Estimation，ICCV2019
+
+repo：
+
+思路：
+
+（1）使用两个大规模标注的数据集（人体姿态标注数据集，和动物目标框标注数据集（coco中有）），以及一个小规模数据集（人工标注的动物姿态数据集），来实现动物的姿态估计；
+
+（2）从人类数据的预训练的模型开始，提出一种weakly- and semi-supervised cross-domain adaptation方法；
+
+（3）包括三个部分：feature extractor, domain discriminator, keypoint estimator
+
+**feature extractor从输入数据中提取特征，在此基础上domain discriminator来判断特征是来自于哪个域的，keypoint estimator来预测关键点。**
+
+
+
+
+
+##### 八、论文8
+
+论文：Learning from Synthetic Animals      
+
+repo：https://github.com/JitengMu/Learning-from-Synthetic-Animals
+
+思路：
+
+（1）提出consistency-constrained semi-supervised learning method(CC-SSL，一致性约束半监督学习方法)来解决真实图像和合成图像之间的差距；
+
+（2）我们的方法利用了空间和时间的一致性，用未标记的真实图像引导在合成数据上训练的弱模型；
+
+（3）**在不使用任何真实图像的标签情况下，模型的表现和真实数据上训练的模型接近，在使用少部分真实图像的标签情况下，模型比真实数据上训练的模型表现好**；
+
+（4）合成的数据集包括10多种动物，以及多种姿势和丰富的标签，使得我们可以使用多任务学习策略来进一步提高模型性能；
+
+**总体来说，unsupervised domain adaptation的框架中有两个数据集，一个是合成数据称为源域$(X_s,Y_s)$，还有目标域数据集$X_t$，任务是学习一个函数$f$可以为目标域数据$X_t$预测标签。首先以全监督的方式使用源域数据对$(X_s,Y_s)$来学习源模型$f_s$，再使用目标域数据集以及一致性约束半监督学习方法对源模型$f_s$进行提升。**
+
+
+
+合成数据生成：
+
+合成数据集包括10+种动物，每只动物都来自一些动画序列。
+
+
+
+基本流程：
+
+1.在低维流形假设基础上建立统一的图像生成过程
+
+使用一个生成器$G$来将姿势，形状，视角，纹理等转换为一副图像，$X=G(\alpha,\beta)$。其中$\alpha$表示与关键点检测任务相关的因子，如姿势，形状；$\beta$表示与任务无关的因子，如纹理，光照和背景。
+
+
+
+2.定义三个一致性准则并考虑在伪标签生成过程如何利用
+
+由于生成目标域数据集的伪标签是有噪声的，所以需要一些准则来判断标签的正确性。
+
+
+
+（1）不变一致性（invariance consistency）
+
+（2）等方差一致性（equivariance consistency）
+
+（3）时间一致性（temporal consistency）
+
+
+
+
+
+3.提出伪标签生成算法，并使用一致性准则检查
+
+
+
+
+
+4.提出一致性约束半监督学习算法来迭代训练
+
+
+
+
+
+
+
+
+
+##### 九、论文9
+
+论文：Transferring Dense Pose to Proximal Animal Classes    
+
+repo：
+
+
+
+
+
+
 
 
 
