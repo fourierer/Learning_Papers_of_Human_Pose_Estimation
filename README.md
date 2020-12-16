@@ -1160,7 +1160,7 @@ DONE (t=0.07s).
 ```shell
 python tools/test.py \
     --cfg experiments/coco/hrnet/w32_256x192_adam_lr1e-3.yaml \
-    TEST.MODEL_FILE output/coco/pose/hrnet/w32_256x192_adam_lr1e-3/final_state.pth \
+    TEST.MODEL_FILE output/coco/pose_hrnet/w32_256x192_adam_lr1e-3/final_state.pth \
     TEST.USE_GT_BBOX False
 ```
 
@@ -1190,7 +1190,7 @@ DONE (t=0.38s).
 ```shell
 python tools/test.py \
     --cfg experiments/coco/hrnet/w32_256x192_adam_lr1e-3.yaml \
-    TEST.MODEL_FILE output/coco/pose/hrnet/w32_256x192_adam_lr1e-3/final_state.pth
+    TEST.MODEL_FILE output/coco/pose_hrnet/w32_256x192_adam_lr1e-3/final_state.pth
 ```
 
 测试结果：
@@ -2635,7 +2635,7 @@ repo：
 
 repo：https://github.com/JitengMu/Learning-from-Synthetic-Animals
 
-思路：
+**思路：**
 
 （1）提出consistency-constrained semi-supervised learning method(CC-SSL，一致性约束半监督学习方法)来解决真实图像和合成图像之间的差距；
 
@@ -2649,13 +2649,13 @@ repo：https://github.com/JitengMu/Learning-from-Synthetic-Animals
 
 
 
-合成数据生成：
+**合成数据生成：**
 
 合成数据集包括10+种动物，每只动物都来自一些动画序列。
 
 
 
-基本流程：
+**基本流程：**
 
 1.在低维流形假设基础上建立统一的图像生成过程
 
@@ -2665,18 +2665,36 @@ repo：https://github.com/JitengMu/Learning-from-Synthetic-Animals
 
 2.定义三个一致性准则并考虑在伪标签生成过程如何利用
 
-由于生成目标域数据集的伪标签是有噪声的，所以需要一些准则来判断标签的正确性。
-
-
+由于生成目标域数据集的伪标签是有噪声的，所以需要一些准则来判断标签的正确性。定义张量算子$T:\R^{H*W}\rightarrow\R^{H*W}$：
+$$
+T(X)=G(\tau_\alpha(\alpha),\tau_\beta(\beta))
+$$
+其中$\tau_\alpha$，$\tau_\beta$是影响$\alpha$和$\beta$的算子（个人理解 $T$ 就是图像的一个变换）。假设$f:\R^{H*W}\rightarrow\R^{H*W}$是一个完美的2D姿态估计模型，则应当满足下面三个准则：
 
 （1）不变一致性（invariance consistency）
 
+如果 $T$ 不改变与任务相关的因子$\alpha$（只改变$\beta$，比如在图像中加一些噪声或者干扰的颜色），则模型 $f$ 的预测结果应该不变，即：
+$$
+f(T_\beta(X))=f(X)
+$$
+这个一致性可以用来判断预测是否正确。
+
+
+
 （2）等方差一致性（equivariance consistency）
+
+如果 $T$ 改变与任务相关的因子$\alpha$（比如在图像的几何变换），则模型 $f$ 的预测结果应当有以下准则：
+$$
+f(T_\alpha(X))=T_\alpha(f(X))
+$$
+
 
 （3）时间一致性（temporal consistency）
 
-
-
+视频中的相邻帧中的关键点检测应当遵循时间一致性：
+$$
+f(T_{\Delta}(X))=f(X)+\Delta
+$$
 
 
 3.提出伪标签生成算法，并使用一致性准则检查
@@ -2687,7 +2705,273 @@ repo：https://github.com/JitengMu/Learning-from-Synthetic-Animals
 
 4.提出一致性约束半监督学习算法来迭代训练
 
+损失函数设计如下：
+$$
+L^{(n)}=\sum_{i}L_{MSE}(f^{(n)}(X^i_s),Y_s^i)+\lambda \sum_{j}L_{MSE}(f^{(n)}(X_t^j),\hat{Y}_t^{(n-1),j})
+$$
 
+
+
+
+总体流程如下：
+
+![CC-SSL](G:\Documents\sunzheng\Learning_SimpleBaseline_and_LightweightBaseling_for_Human_Pose_Estimation\code\CC-SSL.png)
+
+训练流程如下：从初始模型$f^{(0)}$开始（仅使用合成数据训练），在第$n$次的迭代中，使用伪标签生成算法（涉及到$f^{(n-1)},X_t,T$）来生成伪标签$\hat{Y}_t^{(n)}$，随后使用$(X_s,Y_s)$和$(X_t,\hat{Y}_t^{(n)})$计算损失函数来训练模型得到$f^{(n)}$。
+
+
+
+**实验部分：**
+
+1.使用Stack Hourglass作为backbone，结构设计不是主要的，所以参数设置和原文章一样；
+
+2.虚拟的相机像素为$640*480$，视角为$90^。$。对于每个合成的动物，生成10000张图像，其中5000张图像的纹理和背景来自于coco图像，另外5000张图像的纹理来自于CAD模型本来的纹理（背景应该还是coco的，从开源的数据大概可以看出来）；
+
+3.数据集
+
+（1）合成数据8000张作为训练集，2000张作为训练集；
+
+（2）真实数据集TigDog：马有79个视频，8380帧作为训练，1772帧作为测试；老虎有96个视频，6523帧作为训练，1765帧作为测试。
+
+4.实验结果：
+
+以$PCK@0.05$对应的各个关键点的准确率作为评价指标：
+
+（1）不使用真实数据的标签时：提出的CC-SSL方法的性能超过其他DA方法；
+
+（2）使用真实数据的标签时：提出的CC-SSL-R方法的性能超过单独在真实数据上训练的结果。
+
+（注：（2）中的CC-SSL-R是用（1）训好的CC-SSL模型在真实数据上finetune的结果）
+
+
+
+
+
+**本地实验**
+
+1.真实数据集TigDog上的训练和测试
+
+训练指令：
+
+```
+python train/train.py --dataset real_animal -a hg --stacks 4 --blocks 1 --image-path ./animal_data/ --checkpoint ./checkpoint/real_animal/horse/horse_hourglass/ --animal horse
+```
+
+（可以在最后选择是否添加-d参数进行可视化）
+
+测试指令：
+
+```
+python train/train.py --dataset real_animal -a hg --stacks 4 --blocks 1 --image-path ./animal_data/ --checkpoint ./checkpoint/real_animal/horse/horse_hourglass/ --animal horse --resume checkpoint/real_animal/horse/horse_hourglass/model_best.pth.tar --evaluate
+```
+
+测试结果：
+
+```python
+==> creating model 'hg', stacks=4, blocks=1
+=> loading checkpoint 'checkpoint/real_animal/horse/horse_hourglass/model_best.pth.tar'
+=> loaded checkpoint 'checkpoint/real_animal/horse/horse_hourglass/model_best.pth.tar' (epoch 60)
+    Total params: 13.02M
+init real animal stacked hourglass augmentation
+split-by-video number of training images:  8380
+split-by-video number of testing images:  1772
+load mean file
+    Mean: 0.5319, 0.5107, 0.4206
+    Std:  0.1910, 0.1921, 0.1951
+init real animal stacked hourglass augmentation
+split-by-video number of training images:  8380
+split-by-video number of testing images:  1772
+load mean file
+    Mean: 0.5319, 0.5107, 0.4206
+    Std:  0.1910, 0.1921, 0.1951
+
+Evaluation only
+Eval  |################################| (296/296) Data: 0.000s | Batch: 0.161s | Total: 0:00:47 | ETA: 0:00:01 | Loss: 0.00070713 | Acc:  0.78983414
+```
+
+
+
+第1部分代码解读：
+
+1./dataset/real_animal.py/load_animal函数
+
+该函数中加载真实场景的数据，需要注意的是：在文件夹/animal_data.behaviorDiscovery2.0/ranges中记录的是shot_id（实际上就是video的编号）及对应帧范围，/animal_data.behaviorDiscovery2.0/landmarks中记录的是对应帧的标注信息。实际上标注信息只是标注了ranges中的一部分图片（以horse为例：99个id只标注了80个，15658帧标注了13545帧），load_animal函数也是加载的标注部分的图片。
+
+
+
+2.合成数据上训练，真实数据TigDog上测试
+
+训练指令：
+
+```
+python train/train.py --dataset synthetic_animal_sp -a hg --stacks 4 --blocks 1 --image-path ./animal_data/ --checkpoint ./checkpoint/synthetic_animal/horse/horse_spaug --animal horse
+```
+
+测试指令：
+
+```
+python ./evaluation/test.py --dataset1 synthetic_animal_sp --dataset2 real_animal_sp --arch hg --resume ./checkpoint/synthetic_animal/horse/horse_spaug/model_best.pth.tar --evaluate --animal horse
+```
+
+测试结果：
+
+```python
+==> creating model 'hg', stacks=4, blocks=1
+=> loading checkpoint './checkpoint/synthetic_animal/horse/horse_spaug/model_best.pth.tar'
+=> loaded checkpoint './checkpoint/synthetic_animal/horse/horse_spaug/model_best.pth.tar' (epoch 97)
+    Total params: 13.02M
+init synthetic animal super augmentation
+10000
+total number of images: 10000
+train images: 8000
+test images: 2000
+load from mean file: ./data/synthetic_animal/horse_combineds5r5_texture/mean.pth.tar
+load mean file
+    Mean: 0.4038, 0.3956, 0.3925
+    Std:  0.2611, 0.2452, 0.2299
+/home/sunzheng/anaconda3/envs/pytorch16_cuda102_detectron2/lib/python3.7/site-packages/imgaug/imgaug.py:182: DeprecationWarning: Function `ContrastNormalization()` is deprecated. Use `imgaug.contrast.LinearContrast` instead.
+  warn_deprecated(msg, stacklevel=3)
+init real animal super augmentation
+split-by-video number of training images:  8380
+split-by-video number of testing images:  1772
+load mean file
+    Mean: 0.4038, 0.3956, 0.3925
+    Std:  0.2611, 0.2452, 0.2299
+
+Evaluation only
+Eval  |################################| (296/296) Data: 0.000s | Batch: 0.147s | Total: 0:00:43 | ETA: 0:00:01 | Acc:  0.60842729
+
+per joint PCK@0.05:
+[0.7494758913914362, 0.7258620693765837, 0.8503521130433385, 0.5263721580246845, 0.5079651971658071, 0.5305452303039984, 0.5200870661481992, 0.7036821711664052, 0.5651399513692347, 0.6602564111768783, 0.6006278543133442, 0.5511309534311295, 0.48564814983142746, 0.6958333343888322, 0.5198412704325858, 0.6378070180353366, 0.6644591613123748, 0.5489010992613468]
+```
+
+
+
+
+
+**由于前面两个并未涉及Domain Adaptation，所以并没有进行训练，只进行了测试。**
+
+3.使用CC-SSL进行合成数据上训练和真实数据TigDog上测试
+
+训练指令：
+
+```
+python CCSSL/CCSSL.py --num-epochs 60 --checkpoint ./checkpoint/synthetic_animal/horse/horse_ccssl --resume ./checkpoint/synthetic_animal/horse/horse_spaug/model_best.pth.tar --animal horse
+```
+
+训练指令中：--checkpoint是训好的模型存储的地址，--resume是预训练的模型，即./checkpoint/synthetic_animal/horse/horse_spaug/model_best.pth.tar是在合成数据上训好模型，作为CC-SSL方法的预训练模型。可以设置该参数决定是否进行合成数据的预训练。
+
+
+
+测试指令1：
+
+自己训练的结果，不使用合成数据的模型（./checkpoint/synthetic_animal/horse/horse_spaug/model_best.pth.tar）进行预训练，即resume参数设置为空
+
+```
+python ./evaluation/test.py --dataset1 synthetic_animal_sp --dataset2 real_animal_sp --arch hg --resume ./checkpoint/synthetic_animal/horse/horse_ccssl/synthetic_animal_sp.pth.tar --evaluate --animal horse
+```
+
+测试指令中：--resume是要测试的模型，即上一步训练指令中用CC-SSL方法训好的模型，并在测试完毕之后，将路径改为：./checkpoint/synthetic_animal/horse/horse_ccssl_try/synthetic_animal_sp.pth.tar
+
+测试结果：
+
+```python
+==> creating model 'hg', stacks=4, blocks=1
+=> loading checkpoint './checkpoint/synthetic_animal/horse/horse_ccssl/synthetic_animal_sp.pth.tar'
+=> loaded checkpoint './checkpoint/synthetic_animal/horse/horse_ccssl/synthetic_animal_sp.pth.tar' (epoch 58)
+    Total params: 13.02M
+init synthetic animal super augmentation
+10000
+total number of images: 10000
+train images: 8000
+test images: 2000
+load from mean file: ./data/synthetic_animal/horse_combineds5r5_texture/mean.pth.tar
+load mean file
+    Mean: 0.4038, 0.3956, 0.3925
+    Std:  0.2611, 0.2452, 0.2299
+/home/sunzheng/anaconda3/envs/pytorch16_cuda102_detectron2/lib/python3.7/site-packages/imgaug/imgaug.py:182: DeprecationWarning: Function `ContrastNormalization()` is deprecated. Use `imgaug.contrast.LinearContrast` instead.
+  warn_deprecated(msg, stacklevel=3)
+init real animal super augmentation
+split-by-video number of training images:  8380
+split-by-video number of testing images:  1772
+load mean file
+    Mean: 0.4038, 0.3956, 0.3925
+    Std:  0.2611, 0.2452, 0.2299
+
+Evaluation only
+Eval  |################################| (296/296) Data: 0.000s | Batch: 0.142s | Total: 0:00:42 | ETA: 0:00:01 | Acc:  0.41582018
+
+per joint PCK@0.05:
+[0.5406708596449978, 0.49568965568624695, 0.7482394362524362, 0.3702141916057671, 0.35829986871246355, 0.2669144994596566, 0.38700248862602815, 0.6056847553267035, 0.4281170511518726, 0.42150349800403303, 0.39303653120790444, 0.33089285860104223, 0.21296296330789724, 0.2593750008381903, 0.2670634934412582, 0.4085964911078152, 0.5264900660277992, 0.23901099048473023]
+```
+
+
+
+测试指令2：（官方模型训练结果，使用合成数据进行预训练./checkpoint/synthetic_animal/horse/horse_spaug/model_best.pth.tar）
+
+```shell
+python ./evaluation/test.py --dataset1 synthetic_animal_sp --dataset2 real_animal_sp --arch hg --resume ./checkpoint/synthetic_animal/horse/horse_ccssl/synthetic_animal_sp.pth.tar --evaluate --animal horse
+```
+
+测试指令中：--resume是要测试的模型，即上一步训练指令中用CC-SSL方法训好的模型。
+
+测试结果：
+
+```python
+==> creating model 'hg', stacks=4, blocks=1
+=> loading checkpoint './checkpoint/synthetic_animal/horse/horse_ccssl/synthetic_animal_sp.pth.tar'
+=> loaded checkpoint './checkpoint/synthetic_animal/horse/horse_ccssl/synthetic_animal_sp.pth.tar' (epoch 48)
+    Total params: 13.02M
+init synthetic animal super augmentation
+10000
+total number of images: 10000
+train images: 8000
+test images: 2000
+load from mean file: ./data/synthetic_animal/horse_combineds5r5_texture/mean.pth.tar
+load mean file
+    Mean: 0.4038, 0.3956, 0.3925
+    Std:  0.2611, 0.2452, 0.2299
+/home/sunzheng/anaconda3/envs/pytorch16_cuda102_detectron2/lib/python3.7/site-packages/imgaug/imgaug.py:182: DeprecationWarning: Function `ContrastNormalization()` is deprecated. Use `imgaug.contrast.LinearContrast` instead.
+  warn_deprecated(msg, stacklevel=3)
+init real animal super augmentation
+split-by-video number of training images:  8380
+split-by-video number of testing images:  1772
+load mean file
+    Mean: 0.4038, 0.3956, 0.3925
+    Std:  0.2611, 0.2452, 0.2299
+
+Evaluation only
+Eval  |################################| (296/296) Data: 0.000s | Batch: 0.150s | Total: 0:00:44 | ETA: 0:00:01 | Acc:  0.70774686
+
+per joint PCK@0.05:
+[0.9014675047412608, 0.7905172412765438, 0.9025821594495169, 0.6113788509464647, 0.5686077654481413, 0.6128872376503112, 0.6601368172733642, 0.85885012941074, 0.6365139958171444, 0.7329254090473368, 0.6855022834792529, 0.6942261909799916, 0.61666666643901, 0.7770833331160247, 0.6498015875972453, 0.7169298244150062, 0.7400662259550284, 0.6363553123159723]
+```
+
+可以看出有合成数据模型预训练的结果和没有预训练的结果相差较多。
+
+
+
+
+
+第3部分代码解读：
+
+1.模型代码
+
+
+
+
+
+2.数据加载部分
+
+（1）/CCSSL/scripts/ssl_datasets/ssl_synthetic_animal_sp.py
+
+
+
+（2）/CCSSL/scripts/ssl_datasets/ssl_real_animal_crop.py
+
+
+
+（3）/CCSSL/scripts/ssl_datasets/ssl_real_animal_sp.py
 
 
 
@@ -3141,6 +3425,20 @@ OKS矩阵：
 
 
 
+$PCK$指标：
+
+$PCK$指标是在$OKS$指标出现之前广泛使用的关键点检测评价指标，是以关键点为单位计算的指标，可以输出每个关键点对应的准确率。对于一个检测器$d_0$来说，其$PCK$为：
+$$
+PCK^p_\sigma(d_0)=\frac{1}{T}\sum_{t\in A}\delta(||x_p^f-y_p^f||<\sigma)
+$$
+$T$表示测试集合中样本的个数，$\sigma$表示欧式距离的阈值，$A$表示测试集合，$x_p^f$表示检测器的预测位置，$y_p^f$表示真实位置。可以通过卡不同的阈值来计算AP。
+
+对于$OKS$和$PCK$指标，区别实际上很明显，一个是以人为单位，计算每个人的$OKS$（每个人的$OKS$又和这个人的所有关键点有关），再对$OKS$设置阈值，来计算当前batch_size所有人中大于给定阈值的比例；一个以关键点为单位，计算每个关键点归一化之后的预测坐标和真实坐标之间的欧式距离，再对距离设置阈值，计算当前关键点在batch_size中小于给定阈值的比例，再求该阈值下所有关键点（比如17个）的平均值比例。
+
+
+
+
+
 #### 附录三、框架代码解读
 
 由于上述几篇论文都是使用同一套论文框架，所以有必要对框架代码进行学习，这里记录SimpleBaseline和HRNet+UDP的代码。
@@ -3554,15 +3852,7 @@ def accuracy(output, target, hm_type='gaussian', thr=0.5):
 
 准确率的计算代码写的非常复杂，涉及多个函数，需要慢慢debug去理解各个变量的含义。简单总结就是：训练过程中的每个batch_size输出的准确率是17个关键点的平均准确率，而每个关键点的准确率是batch_size个样本中真实关键点坐标和预测关键点坐标之间的欧式距离小于某个阈值的比例（代码中设置为0.5）。比如一个batch_size设置为32，在计算左眼关键点的准确率时，需要计算32个样本中每个样本的左眼预测坐标和真实坐标的欧式距离小于0.5的比例，假设有8个样本的预测坐标和真实坐标欧式距离小于0.5，则当前这个batch_size中左眼关键点的准确率为8/32=25%，再依次计算其余16个关键点，再求平均得到当前batch_size的准确率。
 
-代码中的这个计算方法和$PCK$指标非常相似，简单介绍$PCK$指标：
-
-$PCK$指标是在$OKS$指标出现之前广泛使用的关键点检测评价指标，是以关键点为单位计算的指标，可以输出每个关键点对应的准确率。对于一个检测器$d_0$来说，其$PCK$为：
-$$
-PCK^p_\sigma(d_0)=\frac{1}{T}\sum_{t\in A}\delta(||x_p^f-y_p^f||<\sigma)
-$$
-$T$表示测试集合中样本的个数，$\sigma$表示欧式距离的阈值，$A$表示测试集合，$x_p^f$表示检测器的预测位置，$y_p^f$表示真实位置。可以通过卡不同的阈值来计算AP。
-
-对于$OKS$和$PCK$指标，区别实际上很明显，一个是以人为单位，计算每个人的$OKS$（每个人的$OKS$又和这个人的所有关键点有关），再对$OKS$设置阈值，来计算当前batch_size所有人中大于给定阈值的比例；一个以关键点为单位，计算每个关键点归一化之后的预测坐标和真实坐标之间的欧式距离，再对距离设置阈值，计算当前关键点在batch_size中小于给定阈值的比例，再求该阈值下所有关键点（比如17个）的平均值比例。
+代码中的这个计算方法和$PCK$指标非常相似。
 
 
 
