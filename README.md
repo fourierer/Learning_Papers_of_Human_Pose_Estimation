@@ -2366,7 +2366,6 @@ $$
 \end{align*}
 $$
 
-
 **（现在开始推导为何SimpleBaseline和HRNet的翻转策略方法中会有误差）**
 
 假设一个关键点坐标在图像输入空间的坐标为$^ik$，在输入图像翻转之后的坐标为$^{if}k$，则有以下关系：
@@ -2697,9 +2696,33 @@ f(T_{\Delta}(X))=f(X)+\Delta
 $$
 
 
+
 3.提出伪标签生成算法，并使用一致性准则检查
 
+![Pseudo_Label](G:\Documents\sunzheng\Learning_SimpleBaseline_and_LightweightBaseling_for_Human_Pose_Estimation\code\Pseudo_Label.png)
 
+在第$n$次迭代中，使用了第$n-1$次迭代所获得的模型$f_{n-1}$，然后对Target dataset $X_t$中的图像$X^i_t$遍历：
+
+（1）首先使用$f_{n-1}$，$T_\alpha$，$T_\beta$，来生成$X^i_t$的伪标签$\hat{Y}_t^{(n),i}$和伪标签置信度$C_t^{(n),i}$；
+
+（2）使用$T_\Delta$来对第一步生成的$\hat{Y}_t^{(n),i}$和$C_t^{(n),i}$进行更新；（这一步可以选择是否进行更新，依据target dataset是否是视频的连续帧）；
+
+Target dataset $X_t$遍历结束之后，会得到伪标签集合以及对应的置信度集合，然后执行：
+
+（3）对置信度集合进行遍历，选择一个$C_{thresh}$，置信度大于这个阈值的$X_t^i$和对应的伪标签$\hat{Y}_i^{(n),i}$才会用来训练。
+
+注意：随着模型训练epoch的增加，会使用越来越多的伪标签来训练，一开始是top-20%的伪标签，一直到80%，CCSSL/CCSSL.py中有这样一段代码：
+
+```python
+p = (1.0-0.02*(epoch+10)) # p的取值区间是[0.2,0.8]
+if p>0.2:
+    ccl_thresh = sorted_confidence[int( p * sorted_confidence.shape[0])]
+else:
+    p = 0.2
+    ccl_thresh = sorted_confidence[int( p * sorted_confidence.shape[0])]
+```
+
+p的取值区间是[0.2,0.8]，当epoch=0时，p=0.8；当epoch=30时，p=0.2，此后随着epoch增大，p依旧为0.2，所以生成的伪标签伪标签最多可以用80%。
 
 
 
