@@ -2614,7 +2614,7 @@ $$
 
 repo：
 
-思路：
+1.思路：
 
 （1）使用两个大规模标注的数据集（人体姿态标注数据集，和动物目标框标注数据集（coco中有）），以及一个小规模数据集（人工标注的动物姿态数据集），来实现动物的姿态估计；
 
@@ -2623,6 +2623,65 @@ repo：
 （3）包括三个部分：feature extractor, domain discriminator, keypoint estimator
 
 **feature extractor从输入数据中提取特征，在此基础上domain discriminator来判断特征是来自于哪个域的，keypoint estimator来预测关键点。**
+
+（4）在WS-CDA之后，模型已经具备了一些动物的姿态知识。但它在一个特定的没有见过的动物类上仍然表现不佳，因为没有从这个类获得监督知识。针对这种情况，我们提出了一种名为“渐进伪标签优化”(Progressive Pseudo-label-based optimization, PPLO)的模型优化机制。利用当前模型选择的预测输出产生的伪标签，对新物种动物的关键点预测进行优化。
+
+
+
+2.Weakly- and Semi- supervised cross-domain adaptation(WS-CDA)
+
+2.1. Network Design
+
+（1）输入数据有三个来源，大量标记的人体姿态数据，第二个是少量标记的动物姿态数据，第三个是无标记的动物数据；
+
+（2）WS-CDA包括四个部分：
+
+1）所有数据被输入到一个CNN网络中生成特征图(feature maps)，称为特征提取器(feature extractor)；
+
+2）所有特征图再输入到一个域判别器(domain discriminator)，用于区分输入的特征图来自于哪个域；
+
+3）对于有姿态标签的特征图会被输入到关键点估计器(keypoint estimator)中，进行全监督学习；
+
+4）中间插入一个域自适应网络(domain adaptation network)，为了对齐动物关键点的特征表示；
+
+![WS-CDA](G:\Documents\sunzheng\Learning_SimpleBaseline_and_LightweightBaseling_for_Human_Pose_Estimation\code\WS-CDA.png)
+
+将域判别器和关键点估计器的loss设为对抗性，域判别器用于混淆不同域提取的特征。
+
+domain discrimination loss（DDL）设置如下：
+$$
+L_{DDL}=-w_1\sum^N_{i=1}(y_ilog(\hat{y}_i)+(1-y_i)log(1-\hat{y}_i))\\
+-\sum^N_{i=1}y_i(z_ilog(\hat{z}_i)+(1-z_i)log(1-\hat{z}_i))
+$$
+其中，$y_i$表示$x_i$是否是一个人($y_i=0$)或者动物($y_i=1$)；$z_i$表示$x_i$是否来自于target domain($z_i=1$)；$\hat{y}_i$和$\hat{z}_i$是判别器预测值；$w_1$是一个权重。
+
+
+
+姿态估计损失（包括动物全监督损失(APEL，记作$L_A$)和人全监督损失(HPEL，记作$L_H$)）设计如下：
+$$
+L_{pose}=\sum^N_{i=1}(w_2y_iL_A(I_i)+(1-y_i)L_H(I_i))
+$$
+$L_A,L_H$都是均方损失，$w_2$是权重。
+
+
+
+网络的最终loss设计如下：
+$$
+L_{WS-CDA}=\alpha L_{DDL}+\beta L_{pose}
+$$
+其中，$\alpha\beta<0$，对域判别器和关键点估计器进行了对抗优化，既鼓励了域混淆，又提高了姿态估计性能。
+
+
+
+
+
+
+
+3.Progressive Pseudo-label-based Optimization(PPLO)  
+
+
+
+
 
 
 
