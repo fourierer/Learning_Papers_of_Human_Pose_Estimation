@@ -1,10 +1,8 @@
-Learning_SimpleBaseline_and_LightweightBaseling_for_Human_Pose_Estimation
+Learning_Papers_for_Human_Pose_Estimation
 
-Learning the paper and code of SimpleBaseline and Lightweight model, and making  a comparasion between of them. 
+### 人体姿态估计论文学习
 
-
-
-#### 关键点检测论文复现
+#### top-down
 
 ##### 一、论文1
 
@@ -1935,7 +1933,7 @@ $$
 0 & \sigma^2
 \end{matrix}\right]
 $$
-对高斯分布取极大似然函数：
+对高斯分布取对数：
 $$
 f(x;\mu,\Sigma)=ln(G)=-ln(2\pi)-\frac{1}{2}ln(|\Sigma|)-\frac{1}{2}(x-\mu)^T\Sigma^{-1}(x-\mu)
 $$
@@ -2610,6 +2608,22 @@ $$
 
 ##### 七、论文7
 
+论文：Rethinking on Multi-Stage Networks for Human Pose Estimation  
+
+repo：https://github.com/megvii-detection/MSPN  
+
+
+
+
+
+
+
+
+
+#### domain adaptation用于姿态估计
+
+##### 一、论文1
+
 论文：Cross-Domain Adaptation for Animal Pose Estimation，ICCV2019
 
 repo：
@@ -2679,13 +2693,7 @@ $$
 
 
 
-
-
-
-
-
-
-##### 八、论文8
+##### 二、论文2
 
 论文：Learning from Synthetic Animals      
 
@@ -3054,16 +3062,6 @@ per joint PCK@0.05:
 （3）/CCSSL/scripts/ssl_datasets/ssl_real_animal_sp.py
 
 
-
-
-
-
-
-##### 九、论文9
-
-论文：Transferring Dense Pose to Proximal Animal Classes    
-
-repo：
 
 
 
