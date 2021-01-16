@@ -4,7 +4,7 @@ Learning_Papers_for_Human_Pose_Estimation
 
 #### top-down
 
-##### 一、论文1
+##### 一、SimpleBaseline
 
 论文：Simple Baselines for Human Pose Estimation and Tracking  
 
@@ -1077,7 +1077,7 @@ DONE (t=0.25s).
 
 
 
-##### 二、论文2
+##### 二、HRNet
 
 论文：Deep High-Resolution Representation Learning for Human Pose Estimation  
 
@@ -1216,7 +1216,7 @@ DONE (t=0.08s).
 
 
 
-##### 三、论文3
+##### 三、LPN
 
 论文：Simple and Lightweight Human Pose Estimation
 
@@ -1805,7 +1805,7 @@ DONE (t=0.31s).
 
 
 
-##### 四、论文4
+##### 四、Towards Accurate Multi-person Pose Estimation in the Wild
 
 论文：Towards Accurate Multi-person Pose Estimation in the Wild
 
@@ -1856,7 +1856,7 @@ $$
 
 
 
-##### 五、论文5
+##### 五、DarkPose
 
 论文：Distribution-Aware Coordinate Representation for Human Pose Estimation  
 
@@ -2084,7 +2084,7 @@ DONE (t=0.32s).
 
 
 
-##### 六、论文6
+##### 六、UDP
 
 论文：The Devil is in the Details: Delving into Unbiased Data Processing for Human Pose Estimation  
 
@@ -2590,7 +2590,7 @@ $$
 
 **消融实验结果**
 
-![Ablation Study Results](G:\Documents\sunzheng\Learning_SimpleBaseline_and_LightweightBaseling_for_Human_Pose_Estimation\code\Ablation Study Results.png)
+![Ablation Study Results](G:\Documents\sunzheng\Learning_Papers_of_Human_Pose_Estimation\code\Ablation Study Results.png)
 
 消融实验有如下结果：
 
@@ -2606,11 +2606,81 @@ $$
 
 
 
-##### 七、论文7
+##### 七、MSPN
 
 论文：Rethinking on Multi-Stage Networks for Human Pose Estimation  
 
 repo：https://github.com/megvii-detection/MSPN  
+
+思路：
+
+1.指出目前多阶段网络（如stacked hourglass）性能不理想的主要原因是各种设计选择的不足:
+
+（1）多阶段网络中的单阶段网络还不够好，比如stacked hourglass中的单阶段模块只是对称等宽的上采样和下采样，和目前流行的网络不一致（如ResNet），发现采用CPN中的GlobalNet作为单阶段模块是足够好的；
+
+（2）重复的上下采样会丢失信息并使得优化过程更加困难，文章提出聚合不同阶段的特征来加强信息流并降低训练难度；
+
+（3）观察到姿态定位精度在多阶段逐步精确，文章采用了一种由粗到精的监督策略。注意，这与以往工作中常用的多尺度监督不同。
+
+
+
+2.多阶段网络结构可以用于bottom-up或者top-down，但是单阶段网络只能用于top-down。目前在MPII数据集上多阶段网络表现优异；COCO数据集上单阶段网络较好。文章通过改进多阶段网络，使得在COCO上的表现超过SOTA；
+
+3.Multi-Stage Pose Network
+
+![MSPN](G:\Documents\sunzheng\Learning_Papers_of_Human_Pose_Estimation\code\MSPN.png)
+
+
+
+3.1. Single-Stage Module
+
+（1）在单阶段中，上采样的feature map数保持不变，均为[256,256,256,256]，而在空间下采样时，每次下采样feature map数量加倍；
+
+（2）将CPN中基于ResNet的GlobalNet作为单阶段网络并不新颖，但将其作为多阶段网络中的一个单阶段模块是第一次做；
+
+
+
+3.2.Cross Stage Feature Aggregation
+
+（1）每个阶段的下采样的输入来自于三个信息流，一个是当前阶段上一层的输出，两个来自前一阶段同一层的$1*1$卷积输出，这三个信息流相加得到输入信息；（前一阶段同一层的$1*1$卷积输出如下图）
+
+![MSPN_1](G:\Documents\sunzheng\Learning_Papers_of_Human_Pose_Estimation\code\MSPN_1.png)
+
+（2）这种设计可以融合不同层的特征，同时可以看成是一种拓展的残差块，有助于解决梯度消失问题；
+
+
+
+3.3.Coarse-to-fine Supervision
+
+（1）每个阶段估计的heatmaps呈现出从粗略到精细的现象，基于此每个阶段的ground truth heatmap的kernel size不一样，一开始尺寸较大（粗略），后面阶段尺寸较大（精细）（如下图）；
+
+![image-20210114221120842](C:\Users\sfzhang\AppData\Roaming\Typora\typora-user-images\image-20210114221120842.png)
+
+（2）OHKM训练策略用于每个阶段的监督信息训练。（OHKM？CPN中采用的技术）
+
+
+
+4.实验
+
+
+
+##### 八、RSN
+
+
+
+
+
+
+
+##### 九、CPN
+
+论文：Cascaded Pyramid Network for Multi-Person Pose Estimation  
+
+repo：https://github.com/chenyilun95/tf-cpn.git  
+
+思路：
+
+CPN分为两个阶段，GlobalNet和RefineNet。GlobalNet是特征金字塔网络，可以成功定位“简单可见”的关键点，但对遮挡或不可见的关键点不能精确定位；RefineNet专门针对“困难”的关键点，通过聚合GlobalNet各个层次的特征来计算online hard keypoint mining loss（OHKM）。
 
 
 
