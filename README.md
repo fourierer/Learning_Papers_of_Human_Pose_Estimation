@@ -1075,9 +1075,39 @@ DONE (t=0.25s).
 
 
 
+##### 二、CPN
+
+论文：Cascaded Pyramid Network for Multi-Person Pose Estimation  
+
+repo：https://github.com/chenyilun95/tf-cpn.git  
+
+思路：
+
+CPN分为两个阶段，GlobalNet和RefineNet。GlobalNet是特征金字塔网络，可以成功定位“简单可见”的关键点，但对遮挡或不可见的关键点不能精确定位；RefineNet专门针对“困难”的关键点，通过聚合GlobalNet各个层次的特征来计算online hard keypoint mining loss（OHKM）。
+
+3.2.1. GlobalNet
+
+![CPN](G:\Documents\sunzheng\Learning_Papers_of_Human_Pose_Estimation\code\CPN.png)
 
 
-##### 二、HRNet
+
+（1）GlobalNet整体基于ResNet结构，整体呈现U型，在上采样的同时还有同级("相同高度")特征的融合，使得特征既有空间信息也有语义信息；
+
+（2）在残差块C2-C5之后有$3*3$的卷积用来生成heatmap，并且在elem-sum之前，还有$1*1$的卷积。
+
+3.2.2. RefineNet
+
+（1）将来自GlobalNet的不同层次的特征经过不同次数的上采样（层数深的上采样次数多），然后将上采样的结果进行concat（不同于Stacked Hourglass的只将最后一个模块的上采样特征作为输出）；
+
+（2）在RefineNet的训练中，基于训练过程中损失函数的值来选择难以识别的关键点，然后只反传这些关键点的损失。
+
+
+
+4.实验
+
+
+
+##### 三、HRNet
 
 论文：Deep High-Resolution Representation Learning for Human Pose Estimation  
 
@@ -1216,7 +1246,7 @@ DONE (t=0.08s).
 
 
 
-##### 三、LPN
+##### 四、LPN
 
 论文：Simple and Lightweight Human Pose Estimation
 
@@ -1805,7 +1835,7 @@ DONE (t=0.31s).
 
 
 
-##### 四、Towards Accurate Multi-person Pose Estimation in the Wild
+##### 五、Towards Accurate Multi-person Pose Estimation in the Wild
 
 论文：Towards Accurate Multi-person Pose Estimation in the Wild
 
@@ -1856,7 +1886,7 @@ $$
 
 
 
-##### 五、DarkPose
+##### 六、DarkPose
 
 论文：Distribution-Aware Coordinate Representation for Human Pose Estimation  
 
@@ -2084,7 +2114,7 @@ DONE (t=0.32s).
 
 
 
-##### 六、UDP
+##### 七、UDP
 
 论文：The Devil is in the Details: Delving into Unbiased Data Processing for Human Pose Estimation  
 
@@ -2606,7 +2636,7 @@ $$
 
 
 
-##### 七、MSPN
+##### 八、MSPN
 
 论文：Rethinking on Multi-Stage Networks for Human Pose Estimation  
 
@@ -2662,25 +2692,21 @@ repo：https://github.com/megvii-detection/MSPN
 
 4.实验
 
+##### 
 
+##### 九、RSN
 
-##### 八、RSN
+论文：Learning Delicate Local Representations for Multi-Person Pose Estimation  
 
-
-
-
-
-
-
-##### 九、CPN
-
-论文：Cascaded Pyramid Network for Multi-Person Pose Estimation  
-
-repo：https://github.com/chenyilun95/tf-cpn.git  
+repo：https://github.com/caiyuanhao1998/RSN/  
 
 思路：
 
-CPN分为两个阶段，GlobalNet和RefineNet。GlobalNet是特征金字塔网络，可以成功定位“简单可见”的关键点，但对遮挡或不可见的关键点不能精确定位；RefineNet专门针对“困难”的关键点，通过聚合GlobalNet各个层次的特征来计算online hard keypoint mining loss（OHKM）。
+
+
+
+
+
 
 
 
